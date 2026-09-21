@@ -1,0 +1,9 @@
+{
+  "flow": "browser create -> encrypted invitation -> encrypted submission -> organizer approval -> stealth payout",
+  "network": "esmeralda",
+  "transaction": "5758af3742af6ec277968dae189f9f30401f83992f7b4f461798a47af1983c75",
+  "utxo": "utxo_0101010101010101010101010101010101010101010101010101010101010101_2a48342511646270ade230235fe0007d34a45dff942bea317b736241ff5ebd0b",
+  "recipientRecoveredMicroTari": "1000000",
+  "duplicateApprovalCreatedAnotherPayment": false,
+  "verifiedAt": "2026-09-21T22:10:55.495Z"
+}

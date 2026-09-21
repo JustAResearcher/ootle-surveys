@@ -1,0 +1,12 @@
+{
+  "desktop": {
+    "width": 1536,
+    "scrollWidth": 1536,
+    "height": 1024
+  },
+  "mobile": {
+    "width": 390,
+    "scrollWidth": 390
+  },
+  "errors": []
+}

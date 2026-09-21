@@ -1,0 +1,28 @@
+[package]
+name = "private_rewards"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Budgeted participation rewards with stealth recipients on Tari Ootle"
+
+[lib]
+crate-type = ["cdylib"]
+[dependencies]
+tari_template_lib = { version = "=0.32.0", features = ["serde"] }
+serde_json = "1"
+[dev-dependencies]
+tari_template_test_tooling = "=0.41.0"
+[build-dependencies]
+tari_ootle_template_build = "=0.12.0"
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+[profile.dev.package.wasmer]
+opt-level = 2
+[profile.dev.package.wasmer-compiler-cranelift]
+opt-level = 2
+[profile.dev.package.cranelift-codegen]
+opt-level = 2

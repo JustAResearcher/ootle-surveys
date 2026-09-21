@@ -1,0 +1,1 @@
+We're entering Ootle Surveys in the Tari September contest: encrypted questionnaires with private participation rewards on Ootle. Working prototype; real testnet payouts verified. MIT-licensed source, screenshots and test evidence: https://github.com/JustAResearcher/ootle-surveys

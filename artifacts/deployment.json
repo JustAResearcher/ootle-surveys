@@ -1,0 +1,12 @@
+{
+  "template": "template_b3eae51f9420ada25663417b0adcb3b6b901466218413fe217d0bd219eba990b",
+  "pool": "component_be29aca7cf223ab2140b67b1c697f28a1a40d9379a522987670a738b0be8b956",
+  "account": "component_6c5066ce0b6cce5459bbdecbdb6dd3adfcb9a7c7d952c2a76b59fe37477d8776",
+  "publicKey": "aa8a48709ab5fe6155e2ac8ab4b4382131ce4553df4a368b7786746fc79d9a58",
+  "expiresEpoch": 12746,
+  "reward": "1000000",
+  "funded": "100000000",
+  "network": "esmeralda",
+  "publishTransaction": "820fe04df71b77c795f851da1b7d94d09dae06a566ccc6b89eaf43dfea6e2453",
+  "poolTransaction": "35c5e61099e63cbf5f462816982a67ebed686583e30c1a0183be8f25a6d72172"
+}

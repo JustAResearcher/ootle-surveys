@@ -1,0 +1,10 @@
+{
+  "network": "esmeralda",
+  "template": "template_b3eae51f9420ada25663417b0adcb3b6b901466218413fe217d0bd219eba990b",
+  "pool": "component_be29aca7cf223ab2140b67b1c697f28a1a40d9379a522987670a738b0be8b956",
+  "transaction": "fb709ee811e3b8cae59480d36daaf0fd814715cf5ac2fc9f37c323dc0dbb74cc",
+  "utxo": "utxo_0101010101010101010101010101010101010101010101010101010101010101_f2f6d2fcc089b13ea5cbf8df74bd03cb9ae5ba8eebf77b77cb92a9b6207b1857",
+  "recipientRecoveredMicroTari": "1000000",
+  "wrongRecipientCouldDecrypt": false,
+  "verifiedAt": "2026-09-21T21:56:53.319Z"
+}
