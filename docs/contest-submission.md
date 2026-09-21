@@ -51,7 +51,7 @@ This is a local/self-hosted testnet prototype, not a hosted production service.
 Public HTTPS deployment, real-user concurrency, backup restoration, outage recovery,
 and independent security review remain unqualified.
 
-## Submission details to complete
+## Submission details
 
-- Prize-payment address: awaiting the submitter's mainnet Tari/XTM address.
-- Public social announcement: awaiting the chosen account and published URL.
+- Prize-payment address: supplied directly with the forum submission.
+- Public social announcement: https://x.com/CaptainCrypto33/status/2102173013311442948
