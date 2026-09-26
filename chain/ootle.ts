@@ -27,7 +27,8 @@ import type { Signer } from "@tari-project/ootle";
 import type { UnsignedTransactionV1 } from "@tari-project/ootle-ts-bindings";
 import { IndexerProvider } from "@tari-project/ootle-indexer";
 export const NETWORK = Network.Esmeralda,
-  INDEXER = "https://ootle-indexer-a.tari.com",
+  INDEXER =
+    process.env.SURVEY_INDEXER_URL ?? "https://ootle-indexer-a.tari.com",
   REWARD = 1_000_000n;
 export type Wallet = { signer: Signer; account: string; publicKey: string };
 export type Deployment = {
@@ -214,6 +215,32 @@ export async function poolState(p: IndexerProvider, d: Deployment) {
     throw new Error("Unexpected reward pool state");
   const v = s[0].value?.hex ?? s[0].hex;
   return { vault: "vault_" + v, paid: s[6].length, closed: !!s[7], raw: s };
+}
+export async function fundingState(p: IndexerProvider, d: Deployment) {
+  const [state, epoch] = await Promise.all([
+    poolState(p, d),
+    p.getCurrentEpoch(),
+  ]);
+  const vault = await p.getSubstate(state.vault);
+  const container = (vault.substate as any).Vault?.resource_container;
+  const balance =
+    container?.Stealth?.revealed_amount ??
+    container?.Confidential?.revealed_amount ??
+    container?.Fungible?.amount;
+  if (balance === undefined || BigInt(balance) < 0n)
+    throw new Error("Unable to verify the reward balance.");
+  if (
+    BigInt(state.raw[4]) !== REWARD ||
+    Number(state.raw[5]) !== d.expiresEpoch
+  )
+    throw new Error("Reward pool terms do not match this deployment.");
+  return {
+    paid: state.paid,
+    closed: state.closed || epoch >= d.expiresEpoch,
+    epoch,
+    expiresEpoch: d.expiresEpoch,
+    remaining: Number(BigInt(balance) / REWARD),
+  };
 }
 export async function pay(
   p: IndexerProvider,

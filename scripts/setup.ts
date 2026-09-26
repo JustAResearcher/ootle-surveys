@@ -11,17 +11,18 @@ import {
   newAddress,
   waitReceipt,
 } from "../chain/ootle.ts";
-await mkdir("data", { recursive: true });
+import { dataDirectory, dataPath } from "../server/paths.ts";
+await mkdir(dataDirectory, { recursive: true, mode: 0o700 });
 const p = await connect();
 async function save(value: any) {
-  await writeFile("data/operator.json.tmp", JSON.stringify(value), {
+  await writeFile(dataPath("operator.json.tmp"), JSON.stringify(value), {
     mode: 0o600,
   });
-  await rename("data/operator.json.tmp", "data/operator.json");
+  await rename(dataPath("operator.json.tmp"), dataPath("operator.json"));
 }
 let state: any;
 try {
-  state = JSON.parse(await readFile("data/operator.json", "utf8"));
+  state = JSON.parse(await readFile(dataPath("operator.json"), "utf8"));
 } catch (e: any) {
   if (e.code !== "ENOENT") throw e;
   const k = generateOotleSecretKey();
@@ -48,10 +49,7 @@ if (!state.account) {
 const wallet = { signer, account: state.account, publicKey };
 if (!state.template) {
   const binary = (
-    await readFile(
-      process.argv[2] ??
-        "artifacts/private_rewards.wasm",
-    )
+    await readFile(process.argv[2] ?? "artifacts/private_rewards.wasm")
   ).toString("base64");
   const result = state.publishTx
     ? { receipt: await waitReceipt(p, state.publishTx) }
@@ -94,5 +92,9 @@ const deployment = {
   publishTransaction: state.publishTx,
   poolTransaction: state.poolTx,
 };
-await writeFile("data/deployment.json", JSON.stringify(deployment, null, 2));
+await writeFile(
+  dataPath("deployment.json"),
+  JSON.stringify(deployment, null, 2),
+  { mode: 0o600 },
+);
 console.log(JSON.stringify(deployment, null, 2));

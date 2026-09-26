@@ -1,6 +1,6 @@
 # Ootle Surveys
 
-A self-hosted prototype for encrypted questionnaires and participation rewards
+A self-hosted application for encrypted questionnaires and participation rewards
 on Tari Ootle's Esmeralda testnet. MIT licensed.
 
 Create a questionnaire, share individual invitations, receive browser-encrypted
@@ -10,8 +10,21 @@ and the pool's closing epoch. Questions and answers stay off-chain.
 
 ![Ootle Surveys questionnaire builder](design/desktop-final.png)
 
-**Status:** working local prototype with real testnet payment verification.
+**Status:** v0.2.0 self-hosted testnet application with real private payment verification.
 There is no hosted public survey service, mainnet support, or independent security audit.
+
+## What is new in v0.2.0
+
+- Encrypted drafts that can be saved and resumed after closing the browser.
+- Questionnaire preview and question reordering before publishing.
+- Workspace counters, verified pool balance, funding reservations and expiry status.
+- Invitation downloads and used/unused status, with links built from the configured public origin.
+- Response filters by survey and reward status, local answer search and CSV export.
+- Confirmation before rewards, survey closure and exporting readable answers.
+- A separate reconciliation action that checks existing payments without submitting another transaction.
+- Working access-code validation, sign out, vault backup import and a 15-minute inactivity lock.
+- Stored response access and draft editing when the testnet is unavailable.
+- Complete SQLite backups, a health endpoint and reproducible HTTP regression tests.
 
 ## Implemented
 
@@ -50,10 +63,13 @@ Fresh checkout, Node 24+:
 
 ```sh
 npm ci
-npm run setup:testnet
 npm run build
 npm start
 ```
+
+You can create your organizer vault and save encrypted drafts immediately.
+To enable publishing and rewards, run `npm run setup:testnet` in another terminal,
+then restart the server. Setup uses faucet tokens on Esmeralda; it does not use mainnet funds.
 
 The app creates up to 20 individual invitation links per survey and reserves one
 1 tTARI reward per invitation. Share a different link per person. Participants
@@ -70,10 +86,12 @@ Setup saves returned operation IDs so pending steps can be reconciled. An unknow
 submission outcome still requires investigation before repeating an operation.
 Testnet resets can invalidate deployments.
 
-The current instance is **local only**. Invitation links work on this computer.
+The default installation is **local only**. Invitation links work on this computer.
 External participants need an HTTPS deployment. Set `SURVEY_PUBLIC_ORIGIN` to the
 exact external origin and place the loopback service behind an HTTPS reverse proxy.
 Public deployment, email delivery, multiple organizers, and mainnet use are not included.
+
+For HTTPS hosting and operational recovery, see [the operator guide](docs/OPERATIONS.md).
 
 `data/` is private and excluded from Git. It contains the operator's test-wallet
 keys, organizer access code, encrypted vault, database, and deployment settings.
@@ -83,8 +101,11 @@ key backup alone does not contain questionnaire or response records.
 
 ## Run verification
 
-`npm test` runs the encryption tests. Set `SURVEY_TEST_URL` to a separate initialized
-QA instance to also run the HTTP integration suite. `npm run build` checks TypeScript
+`npm test` runs the encryption and CSV tests plus an isolated HTTP lifecycle suite.
+The lifecycle suite uses a temporary data directory and simulated indexer; it verifies
+application HTTP/database behavior without touching your operator records or spending tokens.
+Set `SURVEY_TEST_URL` to a separate initialized QA instance to also run the original
+live HTTP integration suite. `npm run build` checks TypeScript
 and builds the UI. See `docs/QA.md` and `artifacts/` for validation evidence.
 
 On Linux with Rust 1.96+ and the `wasm32-unknown-unknown` target installed:
@@ -137,5 +158,5 @@ Anyone with an invitation link can use it once. It is not proof of a unique huma
 The organizer controls approval; the template cannot judge encrypted responses or
 prevent a dishonest distributor from issuing an unearned reward within its budget.
 Browsers and the application-serving origin are trusted: a compromised server
-could deliver malicious JavaScript. This is a prototype, not an independently
+could deliver malicious JavaScript. This testnet application is not an independently
 audited production service or a claim of total anonymity.
