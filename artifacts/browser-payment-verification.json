@@ -1,9 +1,13 @@
 {
   "flow": "browser create -> encrypted invitation -> encrypted submission -> organizer approval -> stealth payout",
   "network": "esmeralda",
-  "transaction": "5758af3742af6ec277968dae189f9f30401f83992f7b4f461798a47af1983c75",
-  "utxo": "utxo_0101010101010101010101010101010101010101010101010101010101010101_2a48342511646270ade230235fe0007d34a45dff942bea317b736241ff5ebd0b",
+  "protocol": "0.42.0",
+  "template": "template_0a92d6f2a1ab3a3789082a2efb525c6109300fd838e793eb97cd9bcb699deb85",
+  "pool": "component_fcf7b76f5ddcff9cc40a33e37de1a7b65a302bf7d02ddad8c01fafee0e3d93dc",
+  "transaction": "9e84cf9d586f5415f77fab155361cfd54016ad0169249c3834e12eeaac5a4abf",
+  "utxo": "utxo_0101010101010101010101010101010101010101010101010101010101010101_48883ec1c6d181dcd6e303b8791d4dc13b1e951e9cb04f29317b424d73d4c418",
   "recipientRecoveredMicroTari": "1000000",
+  "wrongRecipientCouldDecrypt": false,
   "duplicateApprovalCreatedAnotherPayment": false,
-  "verifiedAt": "2026-09-21T22:10:55.495Z"
+  "verifiedAt": "2026-09-30T20:10:05.115Z"
 }

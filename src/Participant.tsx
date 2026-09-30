@@ -73,9 +73,25 @@ export function Participant({
       await api("/respond", token, envelope);
       setAnswers({});
       setDestination("");
+      setInvitation({
+        ...invitation,
+        submitted: true,
+        response: { status: "submitted" },
+      });
       setInvitation(await api("/invitation", token));
     } catch (e) {
       setError((e as Error).message);
+      // Resolve an uncertain HTTP response by reading the invitation, never by posting again.
+      try {
+        const existing = await api("/invitation", token);
+        if (existing.submitted) {
+          setInvitation(existing);
+          setAnswers({});
+          setDestination("");
+        }
+      } catch {
+        /* Preserve the form until the server can be reached again. */
+      }
     } finally {
       setBusy(false);
     }
@@ -117,12 +133,16 @@ export function Participant({
             <h2>
               {invitation.response?.status === "paid"
                 ? "Your reward is on its way"
-                : "Your reward is awaiting approval"}
+                : invitation.response?.status === "submitted"
+                  ? "Your reward is awaiting approval"
+                  : "Your reward is being checked"}
             </h2>
             <p>
               {invitation.response?.status === "paid"
                 ? "1 tTARI was sent to your private Ootle address. Check your wallet to receive it."
-                : "The organizer will review your participation and approve your 1 tTARI reward."}
+                : invitation.response?.status === "submitted"
+                  ? "The organizer will review your participation and approve your 1 tTARI reward."
+                  : "The organizer is checking the existing payment. You do not need to submit another response."}
             </p>
             {invitation.response?.transaction_id && (
               <details>
@@ -131,6 +151,12 @@ export function Participant({
               </details>
             )}
           </div>
+          {error && (
+            <p className="notice small" role="status">
+              We could not refresh your reward status. Your submitted response
+              is preserved. {error}
+            </p>
+          )}
         </div>
       </main>
     );
@@ -143,6 +169,11 @@ export function Participant({
       </div>
       {invitation.closed ? (
         <p className="notice">This survey is closed.</p>
+      ) : invitation.rewardState === "unavailable" ? (
+        <p className="notice" role="status">
+          Rewards are temporarily unavailable. This invitation will reopen when
+          funding can be verified. Keep this link and return later.
+        </p>
       ) : (
         <form onSubmit={submit}>
           <div className="panel respondent-questions">

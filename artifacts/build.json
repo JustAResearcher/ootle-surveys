@@ -1,11 +1,13 @@
 {
   "artifact": "private_rewards.wasm",
-  "sha256": "29576d48e43a7f18b3432156175423f7d031e3e5b14a47179b23ecbf4fe34398",
+  "sha256": "318f0a638438ace0162cc0784b29ca056b433be48f232bb6e0e14310577ec5a3",
   "rustToolchain": "1.96.0",
   "target": "wasm32-unknown-unknown",
   "profile": "release",
   "source": "contract/src/lib.rs",
-  "builtAt": "2026-09-21",
-  "existingTestnetDeploymentWasmSha256": "924a9270f0173f61c8ea70af24a3072a8e954be06ab9e14e8274b05d6a5d07c7",
-  "note": "Rebuilt with survey-specific dependency and build paths. Contract source behavior is unchanged; the existing testnet deployment retains its original binary."
+  "sourceSha256": "db5e696acd08d2d7fc91c4a87fbc61e4ee04f09e97006432a04bdcf84f11cb5e",
+  "protocol": "0.42.0",
+  "templateLib": "0.33.0",
+  "builtAt": "2026-09-30T19:18:11.032Z",
+  "note": "Rebuilt and engine-tested for the Ootle 0.42 testnet reset. Historical deployment evidence is in history/pre-reset-20260930."
 }

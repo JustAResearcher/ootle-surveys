@@ -1,188 +1,365 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   api,
-  type Question,
-  type Questionnaire,
-  type SurveyRecord,
-  type ResponseRecord,
+  ApiError,
+  type OrganizerData,
   type SurveySecrets,
   type Answer,
+  type Draft,
+  type ResponseRecord,
 } from "./api";
-import { QuestionEditor } from "./QuestionEditor";
 import { VaultDialog, backupVault, type Vault } from "./VaultDialog";
+import { SurveyBuilder, emptyDraft } from "./SurveyBuilder";
+import { ResponseList } from "./ResponseList";
+import { InvitationDialog, type InvitationLink } from "./InvitationDialog";
+import { Dialog } from "./Dialog";
 import { encryptResponse, decryptResponse } from "../lib/envelopes.mjs";
 import { randomHex, seal, digest } from "../lib/survey-crypto";
-const newQuestion = (): Question => ({
-  id: randomHex(8),
-  text: "",
-  type: "short",
-  required: false,
-  options: ["", ""],
-});
+import { csv, download } from "../lib/export.mjs";
+const emptyData: OrganizerData = {
+  surveys: [],
+  responses: [],
+  invitations: [],
+  drafts: [],
+  pool: null,
+  poolError: null,
+  baseUrl: location.origin,
+};
 export function Admin({
   token,
   tab,
   setTab,
+  onUnauthorized,
 }: {
   token: string;
   tab: string;
   setTab: (v: string) => void;
+  onUnauthorized: () => void;
 }) {
   const [vault, setVault] = useState<Vault | null>(null),
     [vaultOpen, setVaultOpen] = useState(false),
-    [title, setTitle] = useState(""),
-    [introduction, setIntroduction] = useState(""),
-    [questions, setQuestions] = useState<Question[]>([newQuestion()]),
-    [count, setCount] = useState(5),
-    [busy, setBusy] = useState(""),
+    [draft, setDraft] = useState(emptyDraft),
+    [draftId, setDraftId] = useState(() => randomHex()),
+    [savedDraft, setSavedDraft] = useState(""),
+    [busy, setBusy] = useState(false),
+    [loaded, setLoaded] = useState(false),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
-    [data, setData] = useState<any>({
-      surveys: [],
-      responses: [],
-      invitations: [],
-    }),
+    [data, setData] = useState<OrganizerData>(emptyData),
     [secrets, setSecrets] = useState<Record<string, SurveySecrets>>({}),
     [answers, setAnswers] = useState<Record<string, Answer>>({}),
-    [links, setLinks] = useState<string[]>([]),
-    [copyIndex, setCopyIndex] = useState(-1);
-  async function refresh() {
-    const d = await api("/admin/surveys", token);
-    setData(d);
-    if (vault) {
-      const decrypted: Record<string, SurveySecrets> = {};
-      for (const s of d.surveys as SurveyRecord[])
-        decrypted[s.id] = await decryptResponse(
-          vault.privateKey,
-          s.id,
-          JSON.parse(s.admin_envelope),
-        );
-      setSecrets(decrypted);
-      const a: Record<string, Answer> = {};
-      for (const r of d.responses as ResponseRecord[]) {
-        try {
-          a[r.id] = await decryptResponse(
-            vault.privateKey,
-            r.id,
-            JSON.parse(r.envelope),
-          );
-        } catch {
-          /* Invalid envelopes stay unpaid and are visible as unreadable. */
-        }
+    [drafts, setDrafts] = useState<Record<string, Draft>>({}),
+    [links, setLinks] = useState<InvitationLink[]>([]),
+    [filter, setFilter] = useState("all"),
+    [confirm, setConfirm] = useState<{
+      title: string;
+      text: string;
+      action: () => Promise<void> | void;
+    } | null>(null);
+  const currentVault = useRef(vault),
+    mounted = useRef(true),
+    operation = useRef(false);
+  currentVault.current = vault;
+  const dirty =
+    !!savedDraft ||
+    !!draft.title ||
+    !!draft.introduction ||
+    draft.count !== 5 ||
+    draft.questions.length !== 1 ||
+    draft.questions.some(
+      (q) =>
+        q.text || q.required || q.type !== "short" || q.options.some(Boolean),
+    )
+      ? JSON.stringify(draft) !== savedDraft
+      : false;
+  const handleError = useCallback(
+    (e: unknown) => {
+      if (e instanceof ApiError && e.status === 401) {
+        onUnauthorized();
+        return;
       }
+      setError(
+        (e as Error).message ||
+          "Unable to reach the server. Check your connection.",
+      );
+    },
+    [onUnauthorized],
+  );
+  const refresh = useCallback(
+    async (signal?: AbortSignal) => {
+      const d = await api<OrganizerData>(
+        "/admin/surveys",
+        token,
+        undefined,
+        signal,
+      );
+      if (!mounted.current || signal?.aborted) return;
+      setData(d);
+      setLoaded(true);
+      if (!vault) return;
+      const decrypt = async <T,>(
+        records: { id: string; value: string }[],
+      ): Promise<Record<string, T>> => {
+        const values = await Promise.all(
+          records.map(async (r) => {
+            try {
+              return [
+                r.id,
+                await decryptResponse(
+                  vault.privateKey,
+                  r.id,
+                  JSON.parse(r.value),
+                ),
+              ] as const;
+            } catch {
+              return null;
+            }
+          }),
+        );
+        return Object.fromEntries(values.filter((v) => v !== null)) as Record<
+          string,
+          T
+        >;
+      };
+      const [s, a, dr] = await Promise.all([
+        decrypt<SurveySecrets>(
+          d.surveys.map((r) => ({ id: r.id, value: r.admin_envelope })),
+        ),
+        decrypt<Answer>(
+          d.responses.map((r) => ({ id: r.id, value: r.envelope })),
+        ),
+        decrypt<Draft>(d.drafts.map((r) => ({ id: r.id, value: r.envelope }))),
+      ]);
+      if (!mounted.current || signal?.aborted || currentVault.current !== vault)
+        return;
+      setSecrets(s);
       setAnswers(a);
+      setDrafts(dr);
+    },
+    [token, vault],
+  );
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    async function poll() {
+      try {
+        await refresh(controller.signal);
+      } catch (e) {
+        if (!controller.signal.aborted) handleError(e);
+      }
+      if (!controller.signal.aborted) timer = setTimeout(poll, 10000);
     }
+    void poll();
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
+  }, [refresh, handleError]);
+  function reset() {
+    setDraft(emptyDraft());
+    setDraftId(randomHex());
+    setSavedDraft("");
+  }
+  function lock() {
+    currentVault.current = null;
+    setVault(null);
+    setSecrets({});
+    setAnswers({});
+    setDrafts({});
+    setLinks([]);
+    setConfirm(null);
+    reset();
+    setNotice(
+      "Vault locked. Unlock it to resume saved drafts and read responses.",
+    );
   }
   useEffect(() => {
-    let active = true;
-    const load = () => {
-      if (active) void refresh().catch((e) => setError(e.message));
+    if (!vault) return;
+    let lastActivity = Date.now();
+    const activity = () => {
+      lastActivity = Date.now();
     };
-    load();
-    const timer = setInterval(load, 7000);
+    window.addEventListener("pointerdown", activity);
+    window.addEventListener("keydown", activity);
+    const timer = setInterval(() => {
+      if (Date.now() - lastActivity > 15 * 60 * 1000 && !operation.current)
+        lock();
+    }, 30000);
     return () => {
-      active = false;
       clearInterval(timer);
+      window.removeEventListener("pointerdown", activity);
+      window.removeEventListener("keydown", activity);
     };
-  }, [token, vault]);
-  async function create(e: React.FormEvent) {
-    e.preventDefault();
+  }, [vault]);
+  async function run(action: () => Promise<void>) {
+    if (operation.current) return;
+    operation.current = true;
+    setBusy(true);
     setError("");
     setNotice("");
+    try {
+      await action();
+    } catch (e) {
+      handleError(e);
+    } finally {
+      operation.current = false;
+      if (mounted.current) setBusy(false);
+    }
+  }
+  async function saveDraft() {
     if (!vault) {
       setVaultOpen(true);
       return;
     }
-    setBusy("Creating encrypted survey…");
-    try {
-      const cleaned = questions.map((q) => ({
-        ...q,
-        text: q.text.trim(),
-        options: q.options.map((o) => o.trim()).filter(Boolean),
-      }));
-      if (
-        cleaned.some(
-          (q) =>
-            !q.text ||
-            (q.type === "choice" &&
-              (q.options.length < 2 ||
-                new Set(q.options).size !== q.options.length)),
-        )
-      )
-        throw new Error(
-          "Each multiple-choice question needs at least two distinct choices.",
-        );
+    const contents = JSON.stringify(draft);
+    await run(async () => {
+      await api("/admin/drafts", token, {
+        id: draftId,
+        envelope: await encryptResponse(vault.publicKey, draftId, draft),
+      });
+      setSavedDraft(contents);
+      setNotice(
+        "Encrypted draft saved. You can resume it after unlocking your vault.",
+      );
+      await refresh();
+    });
+  }
+  async function create(clean: Draft) {
+    if (!vault) {
+      setVaultOpen(true);
+      return;
+    }
+    await run(async () => {
       const id = randomHex(),
         key = randomHex(),
-        tokens = Array.from({ length: count }, () => randomHex());
-      const questionnaire: Questionnaire = {
-        title: title.trim(),
-        introduction: introduction.trim(),
-        questions: cleaned,
-      };
-      const privateData: SurveySecrets = { ...questionnaire, key, tokens };
-      const invitations = await Promise.all(
-        tokens.map(async (token) => ({
-          tokenHash: await digest(token),
-          responseId: randomHex(),
-        })),
-      );
+        tokens = Array.from({ length: clean.count }, () => randomHex());
+      const { count: _count, ...questionnaire } = clean;
       await api("/admin/surveys", token, {
         id,
+        draftId,
         questions: await seal(
           key,
           questionnaire,
           "ootle-surveys/questions/" + id,
         ),
-        adminEnvelope: await encryptResponse(vault.publicKey, id, privateData),
-        invitations,
+        adminEnvelope: await encryptResponse(vault.publicKey, id, {
+          ...questionnaire,
+          key,
+          tokens,
+        }),
+        invitations: await Promise.all(
+          tokens.map(async (t) => ({
+            tokenHash: await digest(t),
+            responseId: randomHex(),
+          })),
+        ),
       });
-      setLinks(tokens.map((t) => `${location.origin}/#invite=${t}&key=${key}`));
-      setTitle("");
-      setIntroduction("");
-      setQuestions([newQuestion()]);
-      setNotice("Survey created. Share one invitation link per participant.");
+      setLinks(
+        tokens.map((t) => ({
+          url: `${data.baseUrl}/#invite=${t}&key=${key}`,
+          submitted: false,
+        })),
+      );
+      reset();
+      setNotice(
+        "Survey created. Share one private invitation per participant.",
+      );
       await refresh();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy("");
-    }
+    });
   }
-  async function approve(response: ResponseRecord) {
-    const a = answers[response.id];
-    if (!a?.destination) {
-      setError("This response has no readable reward address.");
+  function requestChange(
+    title: string,
+    text: string,
+    action: () => Promise<void> | void,
+  ) {
+    setConfirm({ title, text, action });
+  }
+  function invitations(id: string) {
+    if (!vault) {
+      setVaultOpen(true);
       return;
     }
-    setBusy(response.id);
-    setError("");
-    try {
-      await api(`/admin/responses/${response.id}/pay`, token, {
-        destination: a.destination,
-      });
-      setNotice("Private reward sent.");
-      await refresh();
-    } catch (e) {
-      setError((e as Error).message);
-      await refresh();
-    } finally {
-      setBusy("");
+    const secret = secrets[id];
+    if (!secret) {
+      setError("This questionnaire cannot be decrypted with your vault.");
+      return;
     }
+    // Invitation rows preserve insertion order, matching the encrypted token list.
+    const records = data.invitations.filter((i) => i.survey_id === id);
+    setLinks(
+      secret.tokens.map((t, i) => ({
+        url: `${data.baseUrl}/#invite=${t}&key=${secret.key}`,
+        submitted: !!records[i]?.submitted,
+      })),
+    );
   }
-  async function close(id: string) {
-    setBusy(id);
-    setError("");
-    try {
-      await api(`/admin/surveys/${id}/close`, token, {});
+  function approve(r: ResponseRecord) {
+    requestChange(
+      "Approve participation",
+      "Send one private 1 tTARI reward for this response? Review participation independently of what the answers say. Testnet transaction fees are paid by your operator wallet.",
+      () =>
+        run(async () => {
+          await api(`/admin/responses/${r.id}/pay`, token, {
+            destination: answers[r.id]?.destination,
+          });
+          setNotice("Private reward confirmed.");
+          await refresh();
+        }),
+    );
+  }
+  function check(r: ResponseRecord) {
+    void run(async () => {
+      const result = await api(`/admin/responses/${r.id}/check`, token, {});
+      setNotice(
+        result.status === "paid"
+          ? "Existing payment confirmed."
+          : result.message,
+      );
       await refresh();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy("");
-    }
+    });
   }
-  const activeSurveys = data.surveys as SurveyRecord[];
+  function exportResponses(rows: ResponseRecord[]) {
+    requestChange(
+      "Export decrypted responses",
+      "This CSV contains readable answers. Keep the downloaded file private. Reward addresses are excluded. Only decryptable responses matching your filters are exported.",
+      () => {
+        download(
+          csv([
+            [
+              "Survey",
+              "Response ID",
+              "Submitted",
+              "Reward status",
+              "Question",
+              "Answer",
+            ],
+            ...rows.flatMap((r) =>
+              answers[r.id]
+                ? (secrets[r.survey_id]?.questions ?? []).map((q) => [
+                    secrets[r.survey_id].title,
+                    r.id,
+                    r.created_at,
+                    r.status,
+                    q.text,
+                    answers[r.id].answers?.[q.id] ?? "",
+                  ])
+                : [],
+            ),
+          ]),
+          "ootle-surveys-responses.csv",
+          "text/csv;charset=utf-8",
+        );
+        setNotice("Responses exported in this browser.");
+      },
+    );
+  }
+  const ready = data.responses.filter((r) => r.status === "submitted").length;
   return (
     <main className="organizer">
       <div className="intro">
@@ -203,19 +380,22 @@ export function Admin({
             <>
               <button
                 className="text-button"
-                onClick={() =>
-                  void backupVault(token).catch((e) => setError(e.message))
-                }
+                onClick={() => void backupVault(token).catch(handleError)}
               >
                 Back up vault
               </button>
               <button
                 className="text-button muted"
-                onClick={() => {
-                  setVault(null);
-                  setSecrets({});
-                  setAnswers({});
-                }}
+                disabled={busy}
+                onClick={() =>
+                  dirty
+                    ? requestChange(
+                        "Lock vault?",
+                        "Unsaved edits will be cleared. Save an encrypted draft first if you want to keep them.",
+                        lock,
+                      )
+                    : lock()
+                }
               >
                 Lock
               </button>
@@ -237,313 +417,268 @@ export function Admin({
           {notice}
         </p>
       )}
+      <div className="workspace-status" aria-label="Workspace status">
+        <div>
+          <span className="small muted">Active surveys</span>
+          <strong>{data.surveys.filter((s) => !s.closed).length}</strong>
+        </div>
+        <div>
+          <span className="small muted">Awaiting review</span>
+          <button
+            className="metric-button"
+            onClick={() => {
+              setFilter("all");
+              setTab("responses");
+            }}
+          >
+            {ready}
+          </button>
+        </div>
+        <div>
+          <span className="small muted">Rewards paid</span>
+          <strong>
+            {data.responses.filter((r) => r.status === "paid").length} tTARI
+          </strong>
+        </div>
+        <div>
+          <span className="small muted">Available funding</span>
+          <strong>
+            {data.pool ? `${data.pool.available} tTARI` : "Unavailable"}
+          </strong>
+        </div>
+        <button
+          className="text-button"
+          disabled={busy}
+          onClick={() => void run(refresh)}
+        >
+          Refresh
+        </button>
+      </div>
+      {!loaded ? (
+        <p className="notice" role="status">
+          Loading your encrypted workspace…
+        </p>
+      ) : data.poolError ? (
+        <p className="notice small" role="status">
+          {data.poolError}
+        </p>
+      ) : data.pool?.closed ? (
+        <p className="notice small">
+          The reward pool has expired. You can review and export responses, but
+          new rewards cannot be paid.
+        </p>
+      ) : (
+        <p className="pool-detail small muted">
+          {data.pool?.reserved} tTARI reserved for invitations and unpaid
+          responses · Pool closes at epoch {data.pool?.expiresEpoch} · Current
+          epoch {data.pool?.epoch}
+        </p>
+      )}
       {tab === "surveys" ? (
         <>
-          <form className="builder" onSubmit={create}>
-            <section className="panel editor">
-              <h2>New questionnaire</h2>
-              <label htmlFor="survey-title">Survey title</label>
-              <input
-                id="survey-title"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="What would you like to learn?"
-                maxLength={120}
-                required
-              />
-              <label htmlFor="survey-intro">Introduction</label>
-              <textarea
-                id="survey-intro"
-                rows={2}
-                value={introduction}
-                onChange={(e) => setIntroduction(e.target.value)}
-                placeholder="Tell participants what to expect."
-                maxLength={1200}
-              />
-              <div className="questions">
-                {questions.map((q, i) => (
-                  <QuestionEditor
-                    key={q.id}
-                    question={q}
-                    index={i}
-                    canDelete={questions.length > 1}
-                    onDelete={() =>
-                      setQuestions(questions.filter((v) => v.id !== q.id))
-                    }
-                    onChange={(next) =>
-                      setQuestions(
-                        questions.map((v) => (v.id === q.id ? next : v)),
-                      )
-                    }
-                  />
-                ))}
-              </div>
-              <button
-                className="outline add"
-                type="button"
-                disabled={questions.length >= 12}
-                onClick={() => setQuestions([...questions, newQuestion()])}
-              >
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 20 20"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  aria-hidden="true"
-                >
-                  <path d="M10 2v16M2 10h16" />
-                </svg>
-                Add question
-              </button>
-            </section>
-            <aside className="panel reward-panel">
-              <h2>Participation reward</h2>
-              <div className="reward-amount">1 tTARI</div>
-              <p>per approved response</p>
-              <dl>
-                <div>
-                  <dt>
-                    <label htmlFor="invitation-count">Invitations</label>
-                  </dt>
-                  <dd>
-                    <input
-                      id="invitation-count"
-                      type="number"
-                      value={count}
-                      onChange={(e) => setCount(Number(e.target.value))}
-                      min="1"
-                      max="20"
-                      required
-                    />
-                  </dd>
-                </div>
-                <div>
-                  <dt>Reward budget</dt>
-                  <dd className="budget">{count || 0} tTARI</dd>
-                </div>
-              </dl>
-              <p className="reward-explainer">
-                Answers are encrypted for you. Participants receive a private
-                Ootle payment after approval.
-              </p>
-              <button className="primary full" disabled={!!busy || !data.pool}>
-                {busy && !/^[a-f0-9]{64}$/.test(busy) ? busy : "Create survey"}
-              </button>
-              {!data.pool && (
-                <p className="small muted">
-                  Connecting the testnet reward pool…
-                </p>
-              )}
-            </aside>
-          </form>
-          <section className="panel survey-list">
-            <h2>Your surveys</h2>
-            {!activeSurveys.length ? (
-              <div className="empty">
-                <svg
-                  width="28"
-                  height="32"
-                  viewBox="0 0 28 32"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.7"
-                  aria-hidden="true"
-                >
-                  <path d="M6 2h10l7 7v21H6zM16 2v8h7M10 16h9M10 21h9" />
-                </svg>
-                <p>Your first questionnaire starts here.</p>
-              </div>
-            ) : (
-              activeSurveys.map((s) => (
-                <div className="survey-row" key={s.id}>
+          <SurveyBuilder
+            key={vault ? "unlocked" : "locked"}
+            draft={draft}
+            setDraft={setDraft}
+            dirty={dirty}
+            pool={data.pool}
+            busy={busy}
+            unlocked={!!vault}
+            onSave={() => void saveDraft()}
+            onCreate={(d) => void create(d)}
+            onReset={() =>
+              dirty
+                ? requestChange(
+                    "Start a new questionnaire?",
+                    "Unsaved edits will be cleared. Your saved drafts stay available below.",
+                    reset,
+                  )
+                : reset()
+            }
+          />
+          {data.drafts.length > 0 && (
+            <section className="panel survey-list">
+              <h2>Saved drafts</h2>
+              {data.drafts.map((d) => (
+                <div className="survey-row" key={d.id}>
                   <div>
-                    <h3>{secrets[s.id]?.title ?? "Encrypted questionnaire"}</h3>
+                    <h3>{drafts[d.id]?.title || "Encrypted draft"}</h3>
                     <p>
-                      {
-                        data.responses.filter(
-                          (r: ResponseRecord) => r.survey_id === s.id,
-                        ).length
-                      }{" "}
-                      responses ·{" "}
-                      {
-                        data.invitations.filter(
-                          (i: any) => i.survey_id === s.id,
-                        ).length
-                      }{" "}
-                      invitations{s.closed ? " · Closed" : ""}
+                      Saved {new Date(d.updated_at).toLocaleString()} · No
+                      funding reserved
                     </p>
                   </div>
                   <div className="row-actions">
                     <button
                       className="text-button"
+                      disabled={!!vault && !drafts[d.id]}
                       onClick={() => {
                         if (!vault) {
                           setVaultOpen(true);
                           return;
                         }
-                        const secret = secrets[s.id];
-                        setLinks(
-                          secret.tokens.map(
-                            (t) =>
-                              `${location.origin}/#invite=${t}&key=${secret.key}`,
-                          ),
-                        );
+                        if (!drafts[d.id]) {
+                          setError(
+                            "This draft cannot be decrypted with your vault.",
+                          );
+                          return;
+                        }
+                        const resume = () => {
+                          setDraft(drafts[d.id]);
+                          setDraftId(d.id);
+                          setSavedDraft(JSON.stringify(drafts[d.id]));
+                          setNotice("Saved draft opened in the builder.");
+                          window.scrollTo({ top: 0, behavior: "smooth" });
+                        };
+                        if (dirty)
+                          requestChange(
+                            "Open saved draft?",
+                            "Unsaved edits in the builder will be cleared.",
+                            resume,
+                          );
+                        else resume();
                       }}
                     >
-                      Invitation links
+                      Resume draft
                     </button>
                     <button
-                      className="text-button"
-                      onClick={() => setTab("responses")}
+                      className="text-button muted"
+                      disabled={busy}
+                      onClick={() =>
+                        requestChange(
+                          "Delete saved draft?",
+                          "This removes the encrypted draft. Published surveys and responses are preserved.",
+                          () =>
+                            run(async () => {
+                              await api(
+                                `/admin/drafts/${d.id}/delete`,
+                                token,
+                                {},
+                              );
+                              if (draftId === d.id) setSavedDraft("");
+                              await refresh();
+                            }),
+                        )
+                      }
                     >
-                      Review responses
+                      Delete
                     </button>
-                    {!s.closed && (
-                      <button
-                        className="text-button muted"
-                        disabled={!!busy}
-                        onClick={() => void close(s.id)}
-                      >
-                        Close
-                      </button>
-                    )}
                   </div>
                 </div>
-              ))
+              ))}
+            </section>
+          )}
+          <section className="panel survey-list">
+            <h2>Your surveys</h2>
+            {!data.surveys.length ? (
+              <div className="empty">
+                <p>Your first questionnaire starts here.</p>
+              </div>
+            ) : (
+              data.surveys.map((s) => {
+                const rows = data.responses.filter((r) => r.survey_id === s.id);
+                const invitationsCount = data.invitations.filter(
+                  (i) => i.survey_id === s.id,
+                ).length;
+                return (
+                  <div className="survey-row" key={s.id}>
+                    <div>
+                      <h3>
+                        {secrets[s.id]?.title ?? "Encrypted questionnaire"}
+                      </h3>
+                      <p>
+                        {rows.length} of {invitationsCount} responses ·{" "}
+                        {rows.filter((r) => r.status === "paid").length} rewards
+                        paid · {s.closed ? "Closed" : "Open"}
+                      </p>
+                    </div>
+                    <div className="row-actions">
+                      <button
+                        className="text-button"
+                        disabled={!!vault && !secrets[s.id]}
+                        onClick={() => invitations(s.id)}
+                      >
+                        Invitation links
+                      </button>
+                      <button
+                        className="text-button"
+                        onClick={() => {
+                          setFilter(s.id);
+                          setTab("responses");
+                        }}
+                      >
+                        Review responses
+                      </button>
+                      {!s.closed && (
+                        <button
+                          className="text-button muted"
+                          disabled={busy}
+                          onClick={() =>
+                            requestChange(
+                              "Close this survey?",
+                              "Unused invitations will stop accepting responses and release their reserved funding. Existing responses can still be reviewed and rewarded before the pool expires.",
+                              () =>
+                                run(async () => {
+                                  await api(
+                                    `/admin/surveys/${s.id}/close`,
+                                    token,
+                                    {},
+                                  );
+                                  setNotice(
+                                    "Survey closed. Existing responses remain available.",
+                                  );
+                                  await refresh();
+                                }),
+                            )
+                          }
+                        >
+                          Close
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
             )}
           </section>
         </>
       ) : (
-        <section className="panel response-list">
-          <h2>Responses</h2>
-          {!vault ? (
-            <div className="empty">
-              <p>Unlock your vault to read responses.</p>
-              <button className="outline" onClick={() => setVaultOpen(true)}>
-                Unlock vault
-              </button>
-            </div>
-          ) : !data.responses.length ? (
-            <div className="empty">
-              <p>Responses will appear here after participants submit.</p>
-            </div>
-          ) : (
-            (data.responses as ResponseRecord[]).map((r) => (
-              <article className="response" key={r.id}>
-                <div className="response-head">
-                  <div>
-                    <h3>{secrets[r.survey_id]?.title ?? "Survey response"}</h3>
-                    <p className="small muted">
-                      {new Date(r.created_at).toLocaleString()}
-                    </p>
-                  </div>
-                  <span className={"status " + r.status}>
-                    {r.status === "paid"
-                      ? "Reward paid"
-                      : r.status === "submitted"
-                        ? "Ready for review"
-                        : "Payment pending"}
-                  </span>
-                </div>
-                {answers[r.id] ? (
-                  <>
-                    {secrets[r.survey_id]?.questions.map((q) => (
-                      <div className="response-answer" key={q.id}>
-                        <h4>{q.text}</h4>
-                        <p>
-                          {String(answers[r.id].answers?.[q.id] ?? "No answer")}
-                        </p>
-                      </div>
-                    ))}
-                    <details>
-                      <summary>Private reward address</summary>
-                      <code>{answers[r.id].destination}</code>
-                    </details>
-                  </>
-                ) : (
-                  <p className="error">
-                    This response cannot be decrypted. No reward has been sent.
-                  </p>
-                )}
-                <div className="response-bottom">
-                  {r.transaction_id && (
-                    <details>
-                      <summary>Payment receipt</summary>
-                      <code>{r.transaction_id}</code>
-                    </details>
-                  )}
-                  {r.status !== "paid" && (
-                    <button
-                      className="primary"
-                      disabled={!!busy || !answers[r.id]}
-                      onClick={() => void approve(r)}
-                    >
-                      {busy === r.id
-                        ? "Sending private reward…"
-                        : r.status === "submitted"
-                          ? "Approve & pay 1 tTARI"
-                          : "Check existing payment"}
-                    </button>
-                  )}
-                </div>
-              </article>
-            ))
-          )}
-        </section>
+        <ResponseList
+          data={data}
+          secrets={secrets}
+          answers={answers}
+          unlocked={!!vault}
+          busy={busy}
+          filter={filter}
+          setFilter={setFilter}
+          onUnlock={() => setVaultOpen(true)}
+          onPay={approve}
+          onCheck={check}
+          onExport={exportResponses}
+        />
       )}
       {links.length > 0 && (
-        <div className="modal-backdrop">
-          <section
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="links-title"
-            className="links-dialog"
-          >
-            <button
-              className="close"
-              aria-label="Close invitation links"
-              onClick={() => setLinks([])}
-            >
-              ×
+        <InvitationDialog links={links} onClose={() => setLinks([])} />
+      )}
+      {confirm && (
+        <Dialog title={confirm.title} onClose={() => setConfirm(null)}>
+          <p>{confirm.text}</p>
+          <div className="dialog-actions">
+            <button className="outline" onClick={() => setConfirm(null)}>
+              Cancel
             </button>
-            <h2 id="links-title">Your private invitations</h2>
-            <p className="muted">
-              Share a different link with each participant. Anyone with a link
-              can open that invitation and submit once.
-            </p>
-            <div className="invitation-list">
-              {links.map((link, i) => (
-                <div className="invitation-row" key={link}>
-                  <label htmlFor={"link-" + i}>Participant {i + 1}</label>
-                  <input
-                    id={"link-" + i}
-                    readOnly
-                    value={link}
-                    onFocus={(e) => e.target.select()}
-                  />
-                  <button
-                    className="outline"
-                    onClick={() =>
-                      void navigator.clipboard
-                        .writeText(link)
-                        .then(() => setCopyIndex(i))
-                        .catch(() =>
-                          setError("Select the link and copy it manually."),
-                        )
-                    }
-                  >
-                    {copyIndex === i ? "Copied" : "Copy"}
-                  </button>
-                </div>
-              ))}
-            </div>
-            <p className="small muted">
-              This local preview works on this computer. External participants
-              need an HTTPS deployment.
-            </p>
-          </section>
-        </div>
+            <button
+              className="primary"
+              onClick={() => {
+                const action = confirm.action;
+                setConfirm(null);
+                void action();
+              }}
+            >
+              Confirm
+            </button>
+          </div>
+        </Dialog>
       )}
       {vaultOpen && (
         <VaultDialog

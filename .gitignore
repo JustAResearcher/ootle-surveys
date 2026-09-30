@@ -3,5 +3,6 @@ dist/
 data/
 .npm-cache/
 contract/target/
+tools/testnet-claim/target/
 *.log
 .env

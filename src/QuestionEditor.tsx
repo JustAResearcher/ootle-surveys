@@ -5,27 +5,55 @@ export function QuestionEditor({
   onChange,
   onDelete,
   canDelete,
+  onMove,
+  total,
 }: {
   question: Question;
   index: number;
   onChange: (q: Question) => void;
   onDelete: () => void;
   canDelete: boolean;
+  onMove?: (direction: number) => void;
+  total?: number;
 }) {
   return (
     <section className="question-editor">
       <div className="question-head">
         <label htmlFor={"q-" + question.id}>Question {index + 1}</label>
-        {canDelete && (
-          <button
-            type="button"
-            className="text-button muted"
-            onClick={onDelete}
-            aria-label={`Remove question ${index + 1}`}
-          >
-            Remove
-          </button>
-        )}
+        <div className="question-actions">
+          {onMove && (
+            <>
+              <button
+                type="button"
+                className="text-button muted"
+                disabled={index === 0}
+                aria-label={`Move question ${index + 1} up`}
+                onClick={() => onMove(-1)}
+              >
+                Up
+              </button>
+              <button
+                type="button"
+                className="text-button muted"
+                disabled={index === (total ?? 1) - 1}
+                aria-label={`Move question ${index + 1} down`}
+                onClick={() => onMove(1)}
+              >
+                Down
+              </button>
+            </>
+          )}
+          {canDelete && (
+            <button
+              type="button"
+              className="text-button muted"
+              onClick={onDelete}
+              aria-label={`Remove question ${index + 1}`}
+            >
+              Remove
+            </button>
+          )}
+        </div>
       </div>
       <div className="question-row">
         <input
@@ -71,6 +99,7 @@ export function QuestionEditor({
             placeholder={"First choice\nSecond choice"}
             required
             rows={3}
+            maxLength={4000}
           />
         </label>
       )}

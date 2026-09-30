@@ -13,10 +13,6 @@ import {
   signTransaction,
   sealTransaction,
   TARI_RESOURCE_ADDRESS,
-  XTR_FAUCET_COMPONENT_ADDRESS,
-  XTR_FAUCET_VAULT_ADDRESS,
-  XTR_FAUCET_CLAIM_RESOURCE_ADDRESS,
-  toHexStr,
   WasmStealthCrypto,
   Mask,
   createOutput,
@@ -27,7 +23,8 @@ import type { Signer } from "@tari-project/ootle";
 import type { UnsignedTransactionV1 } from "@tari-project/ootle-ts-bindings";
 import { IndexerProvider } from "@tari-project/ootle-indexer";
 export const NETWORK = Network.Esmeralda,
-  INDEXER = "https://ootle-indexer-a.tari.com",
+  INDEXER =
+    process.env.SURVEY_INDEXER_URL ?? "https://ootle-indexer-a.tari.com",
   REWARD = 1_000_000n;
 export type Wallet = { signer: Signer; account: string; publicKey: string };
 export type Deployment = {
@@ -45,6 +42,19 @@ export async function inputs(p: IndexerProvider, account: string) {
     (substate_id) => ({ substate_id, version: null }),
   );
 }
+export async function accountBalance(
+  p: IndexerProvider,
+  account: string,
+): Promise<bigint> {
+  const vaults = await getVaultIdsForAccount(p, account);
+  const states = await Promise.all(vaults.map((id) => p.getSubstate(id)));
+  return states.reduce((sum, state) => {
+    const value = (state.substate as any).Vault?.resource_container?.Stealth;
+    return value?.address === TARI_RESOURCE_ADDRESS
+      ? sum + BigInt(value.revealed_amount)
+      : sum;
+  }, 0n);
+}
 export async function waitReceipt(p: IndexerProvider, id: string) {
   const end = Date.now() + 180000;
   while (Date.now() < end) {
@@ -57,7 +67,7 @@ export async function waitReceipt(p: IndexerProvider, id: string) {
       )
         return r;
       throw new Error(
-        `Transaction did not commit: ${JSON.stringify(f?.execution_result?.finalize?.result ?? f?.final_decision)}`,
+        `Transaction did not commit: ${JSON.stringify(f?.execution_result?.finalize?.result ?? f?.final_decision ?? (r.result as any).Rejected)}`,
       );
     }
     await new Promise((r) => setTimeout(r, 1500));
@@ -70,7 +80,8 @@ export function newAddress(receipt: any, prefix: string) {
   const diff =
     receipt.result?.Finalized?.execution_result?.finalize?.result?.Accept;
   const found = diff?.up_substates?.find(
-    ([id, s]: [string, any]) => id.startsWith(prefix) && s.version === 0,
+    ([id, s]: [string, any]) =>
+      id.startsWith(prefix) && (s.version === 0 || s.version === "0"),
   );
   if (!found) throw new Error("Created address missing: " + prefix);
   return found[0] as string;
@@ -81,6 +92,7 @@ export async function transact(
   build: (fee: bigint) => Promise<UnsignedTransactionV1>,
   record?: (id: string) => void | Promise<void>,
   cap = 5_000_000n,
+  beforeSubmit?: () => void | Promise<void>,
 ) {
   const trial = await build(cap);
   const env = sealTransaction(
@@ -107,6 +119,7 @@ export async function transact(
     await signTransaction([signer], await build(fee)),
   );
   // This call is never retried automatically. Persist the ID as soon as returned.
+  await beforeSubmit?.();
   const result = await p.submitTransaction(signed);
   await record?.(result.transaction_id);
   return {
@@ -115,48 +128,12 @@ export async function transact(
     fee: fee.toString(),
   };
 }
-export async function faucet(
-  p: IndexerProvider,
-  signer: Signer,
-  record?: (id: string) => void | Promise<void>,
-) {
-  const key = toHexStr(await signer.getPublicKey());
-  return transact(
-    p,
-    signer,
-    async (fee) =>
-      new TransactionBuilder(NETWORK, await resolveMaxEpoch(p))
-        .withFeeInstructionsBuilder((b) =>
-          b
-            .createAccount(key)
-            .saveVar("account")
-            .callMethod(
-              {
-                componentAddress: XTR_FAUCET_COMPONENT_ADDRESS,
-                methodName: "take",
-              },
-              [{ Workspace: "account" }],
-            )
-            .callMethod({ fromWorkspace: "account", methodName: "pay_fee" }, [
-              amountLiteral(fee),
-            ]),
-        )
-        .withInputs(
-          [
-            XTR_FAUCET_COMPONENT_ADDRESS,
-            XTR_FAUCET_VAULT_ADDRESS,
-            XTR_FAUCET_CLAIM_RESOURCE_ADDRESS,
-          ].map((substate_id) => ({ substate_id, version: null })),
-        )
-        .buildUnsignedTransaction(),
-    record,
-  );
-}
 export async function publish(
   p: IndexerProvider,
   w: Wallet,
   binary: string,
   record?: (id: string) => void | Promise<void>,
+  beforeSubmit?: () => void | Promise<void>,
 ) {
   const ins = await inputs(p, w.account);
   return transact(
@@ -170,6 +147,7 @@ export async function publish(
         .build(),
     record,
     20_000_000n,
+    beforeSubmit,
   );
 }
 export async function createPool(
@@ -179,6 +157,7 @@ export async function createPool(
   budget: bigint,
   expiry: number,
   record?: (id: string) => void | Promise<void>,
+  beforeSubmit?: () => void | Promise<void>,
 ) {
   const ins = await inputs(p, w.account);
   return transact(
@@ -202,6 +181,8 @@ export async function createPool(
         ])
         .buildUnsignedTransaction(),
     record,
+    5_000_000n,
+    beforeSubmit,
   );
 }
 export async function poolState(p: IndexerProvider, d: Deployment) {
@@ -214,6 +195,32 @@ export async function poolState(p: IndexerProvider, d: Deployment) {
     throw new Error("Unexpected reward pool state");
   const v = s[0].value?.hex ?? s[0].hex;
   return { vault: "vault_" + v, paid: s[6].length, closed: !!s[7], raw: s };
+}
+export async function fundingState(p: IndexerProvider, d: Deployment) {
+  const [state, epoch] = await Promise.all([
+    poolState(p, d),
+    p.getCurrentEpoch(),
+  ]);
+  const vault = await p.getSubstate(state.vault);
+  const container = (vault.substate as any).Vault?.resource_container;
+  const balance =
+    container?.Stealth?.revealed_amount ??
+    container?.Confidential?.revealed_amount ??
+    container?.Fungible?.amount;
+  if (balance === undefined || BigInt(balance) < 0n)
+    throw new Error("Unable to verify the reward balance.");
+  if (
+    BigInt(state.raw[4]) !== REWARD ||
+    Number(state.raw[5]) !== d.expiresEpoch
+  )
+    throw new Error("Reward pool terms do not match this deployment.");
+  return {
+    paid: state.paid,
+    closed: state.closed || epoch >= d.expiresEpoch,
+    epoch,
+    expiresEpoch: d.expiresEpoch,
+    remaining: Number(BigInt(balance) / REWARD),
+  };
 }
 export async function pay(
   p: IndexerProvider,
@@ -234,7 +241,7 @@ export async function pay(
           resourceAddress: TARI_RESOURCE_ADDRESS,
         }),
       ],
-      0n,
+      null,
     );
   const input = await crypt.buildInputsStatement([], REWARD);
   const proof = await signBalanceProof(

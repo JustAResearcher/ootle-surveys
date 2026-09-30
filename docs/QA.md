@@ -1,4 +1,46 @@
-# Validation — 2026-09-21
+# Validation — 2026-09-30 / Ootle 0.42
+
+The replacement template and 100 tTARI pool were published after the September 30
+reset. Funding came from an Esmeralda L1 faucet, a 200 tXTM burn, its confirmed
+Ootle claim, and an atomic funded-account bootstrap. No mainnet funds were used.
+
+- TypeScript/Vite build: passed.
+- Node suite: 12 passed, zero failures; the optional legacy external-HTTP suite
+  remains skipped. The self-contained HTTP lifecycle suite runs and passes.
+- Ootle 0.42 engine: all four tests passed, including the new mixed public/private
+  output rejection within the authorization test.
+- Native Rust claim helper: built successfully; canonical proof conversion,
+  recipient ownership and a real committed claim verified.
+- Two separate live 1 tTARI payouts: exact recipient decryption and wrong-wallet
+  rejection verified. See `artifacts/testnet-verification.json` and
+  `artifacts/browser-payment-verification.json` for current transaction IDs.
+- Full browser flow on loopback port 4184: encrypted draft save/reload/unlock,
+  resume, publish, funded invitations, encrypted participant response, organizer
+  decryption, approval confirmation, and displayed confirmed reward all passed.
+- Repeating HTTP approval returned the same transaction without another payment.
+  Repeating the CLI verification also reconciled its original payout. The pool
+  contains two paid receipts and 98 tTARI remains.
+- Synthetic questionnaire and answer sentinels were absent from the SQLite,
+  WAL and SHM bytes. No relevant browser console errors were observed.
+- An occupied port now exits with an error instead of printing a misleading
+  successful startup message.
+
+Browser verification used the Codex in-app browser with its normal viewport.
+This migration did not redesign the layout; the earlier desktop/mobile visual
+checks below are historical, not new responsive measurements. The main app uses
+its existing database; synthetic verification records stayed in a separate QA
+directory. The native funding helpers and payment path are testnet-only.
+
+The indexer accepted an early execution-only burn dry run, while validators
+correctly rejected the immature claim. That abort consumed no funds. The claim
+workflow now checks scanned block height and a later epoch before submission;
+an explicit retry is permitted only for a confirmed NotYetValid rejection. Tests
+cover both the full finalized abort and the indexer's compacted Rejected response.
+
+This is local and live-testnet validation, not an independent security audit.
+Historical deployment files are in `artifacts/history/pre-reset-20260930`.
+
+# Historical validation — 2026-09-21
 
 ## Functional evidence
 

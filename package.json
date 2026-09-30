@@ -1,26 +1,29 @@
 {
   "name": "ootle-surveys",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "license": "MIT",
   "scripts": {
-    "test": "node --test tests/*.test.mjs",
+    "test": "node --experimental-wasm-modules --import tsx --test tests/*.test.mjs",
+    "backup": "node --import tsx scripts/backup.ts",
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
     "start": "node --experimental-wasm-modules --import tsx server/index.ts",
     "setup:testnet": "node --experimental-wasm-modules --import tsx scripts/setup.ts",
+    "funding:import": "node --experimental-wasm-modules --import tsx scripts/import-testnet-funding.ts",
+    "funding:claim": "node --experimental-wasm-modules --import tsx scripts/claim-testnet-burn.ts",
     "verify:testnet": "node --experimental-wasm-modules --import tsx scripts/verify.ts"
   },
   "engines": {
     "node": ">=24"
   },
   "dependencies": {
-    "@tari-project/ootle": "0.5.0",
-    "@tari-project/ootle-indexer": "0.5.0",
-    "@tari-project/ootle-secret-key-wallet": "0.5.0",
-    "@tari-project/ootle-ts-bindings": "^1.53.0",
-    "@tari-project/ootle-wasm": "0.41.1",
+    "@tari-project/ootle": "0.6.0",
+    "@tari-project/ootle-indexer": "0.6.0",
+    "@tari-project/ootle-secret-key-wallet": "0.6.0",
+    "@tari-project/ootle-ts-bindings": "1.55.0",
+    "@tari-project/ootle-wasm": "0.42.0",
     "express": "^5.1.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

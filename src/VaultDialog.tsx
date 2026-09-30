@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { createOrganizerKeys, exportPublicKey } from "../lib/envelopes.mjs";
+import {
+  createOrganizerKeys,
+  exportPublicKey,
+  encryptResponse,
+  decryptResponse,
+} from "../lib/envelopes.mjs";
 import { lockPrivateKey, unlockPrivateKey } from "../lib/survey-crypto";
 import { api } from "./api";
 export type Vault = { publicKey: JsonWebKey; privateKey: CryptoKey };
@@ -18,6 +23,8 @@ export function VaultDialog({
     [confirm, setConfirm] = useState(""),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  const [restored, setRestored] = useState<any>(null);
+  const recordToOpen = restored ?? saved;
   useEffect(() => {
     ref.current?.showModal();
     void api("/admin/vault", token)
@@ -30,7 +37,7 @@ export function VaultDialog({
     setBusy(true);
     setError("");
     try {
-      let record = saved;
+      let record = recordToOpen;
       if (!record) {
         if (password !== confirm) throw new Error("Passwords do not match.");
         const keys = await createOrganizerKeys(true);
@@ -41,6 +48,15 @@ export function VaultDialog({
         await api("/admin/vault", token, record);
       }
       const privateKey = await unlockPrivateKey(record.lockedKey, password);
+      if (restored) {
+        const context = "0".repeat(64);
+        await decryptResponse(
+          privateKey,
+          context,
+          await encryptResponse(record.publicKey, context, { check: true }),
+        );
+        if (!saved) await api("/admin/vault", token, record);
+      }
       onUnlock({ publicKey: record.publicKey, privateKey });
       onClose();
     } catch (e) {
@@ -62,7 +78,13 @@ export function VaultDialog({
       >
         ×
       </button>
-      <h2>{saved ? "Unlock your vault" : "Protect your responses"}</h2>
+      <h2>
+        {saved === undefined
+          ? "Loading your vault…"
+          : recordToOpen
+            ? "Unlock your vault"
+            : "Protect your responses"}
+      </h2>
       <p className="muted">
         Your password unlocks your survey keys in this browser. It is never sent
         to the server.
@@ -74,11 +96,11 @@ export function VaultDialog({
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          minLength={saved ? 1 : 12}
+          minLength={recordToOpen ? 1 : 12}
           required
-          autoComplete={saved ? "current-password" : "new-password"}
+          autoComplete={recordToOpen ? "current-password" : "new-password"}
         />
-        {saved === null && (
+        {saved === null && !restored && (
           <>
             <label htmlFor="vault-confirm">Confirm password</label>
             <input
@@ -95,13 +117,66 @@ export function VaultDialog({
             </p>
           </>
         )}
+        {saved !== undefined && (
+          <label className="backup-import">
+            Restore an encrypted vault backup
+            <input
+              type="file"
+              accept=".json,application/json"
+              disabled={busy}
+              onChange={async (e) => {
+                setError("");
+                try {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  if (file.size > 50000)
+                    throw new Error("This backup file is too large.");
+                  const record = JSON.parse(await file.text());
+                  if (
+                    record.publicKey?.kty !== "RSA" ||
+                    !record.publicKey.n ||
+                    !record.publicKey.e ||
+                    !record.lockedKey?.salt ||
+                    !record.lockedKey.iv ||
+                    !record.lockedKey.data
+                  )
+                    throw new Error(
+                      "Choose an Ootle Surveys encrypted vault backup.",
+                    );
+                  if (
+                    saved &&
+                    (saved.publicKey.n !== record.publicKey.n ||
+                      saved.publicKey.e !== record.publicKey.e)
+                  )
+                    throw new Error(
+                      "This backup belongs to a different vault. Your existing vault was preserved.",
+                    );
+                  setRestored(record);
+                  setPassword("");
+                  setConfirm("");
+                } catch (err) {
+                  setError((err as Error).message);
+                }
+              }}
+            />
+          </label>
+        )}
+        {restored && (
+          <p className="small success">
+            Backup loaded. Enter its original password to verify and unlock it.
+          </p>
+        )}
         {error && (
           <p className="error" role="alert">
             {error}
           </p>
         )}
         <button className="primary full" disabled={busy || saved === undefined}>
-          {busy ? "Opening vault…" : saved ? "Unlock vault" : "Create vault"}
+          {busy
+            ? "Opening vault…"
+            : recordToOpen
+              ? "Unlock vault"
+              : "Create vault"}
         </button>
       </form>
     </dialog>

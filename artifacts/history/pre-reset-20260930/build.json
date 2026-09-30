@@ -1,0 +1,11 @@
+{
+  "artifact": "private_rewards.wasm",
+  "sha256": "29576d48e43a7f18b3432156175423f7d031e3e5b14a47179b23ecbf4fe34398",
+  "rustToolchain": "1.96.0",
+  "target": "wasm32-unknown-unknown",
+  "profile": "release",
+  "source": "contract/src/lib.rs",
+  "builtAt": "2026-09-21",
+  "existingTestnetDeploymentWasmSha256": "924a9270f0173f61c8ea70af24a3072a8e954be06ab9e14e8274b05d6a5d07c7",
+  "note": "Rebuilt with survey-specific dependency and build paths. Contract source behavior is unchanged; the existing testnet deployment retains its original binary."
+}
