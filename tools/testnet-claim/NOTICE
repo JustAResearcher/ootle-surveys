@@ -1,0 +1,7 @@
+burn_conversion.rs is the Tari project's canonical L1-to-Ootle burn-proof
+conversion helper, taken from tari-project/tari-ootle at commit
+a43773e600b9503ed3fadcd3f0048f86131e3644 (v0.42.0), file
+applications/tari_ootle_app_utilities/src/burn_claim_proof.rs, excluding its tests.
+It is copyright 2026 The Tari Project and licensed under BSD-3-Clause.
+See LICENSE-TARI. The helper crate is unpublished upstream, so this small adapter
+is included to preserve the protocol's canonical serialization.

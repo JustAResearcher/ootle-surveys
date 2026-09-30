@@ -54,7 +54,7 @@ mod rewards {
             assert_eq!(transfer.inputs_statement.revealed_amount,self.reward,"Incorrect reward amount");
             assert!(transfer.inputs_statement.inputs.is_empty(),"External inputs not allowed");
             assert_eq!(transfer.outputs_statement.outputs.len(),1,"Exactly one stealth recipient required");
-            assert!(transfer.outputs_statement.revealed_output_amount.is_zero(),"Public payout not allowed");
+            assert!(transfer.outputs_statement.revealed_output.is_none(),"Public payout not allowed");
             assert!(transfer.balance_proof.is_some(),"Balance proof required");
             assert!(transfer.covenant_claims.is_empty(),"Covenant claims not allowed");
             // Engine verifies range/balance proofs and atomically creates the

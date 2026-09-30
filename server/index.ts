@@ -174,7 +174,7 @@ app.get("/api/config", (_req, res) =>
   }),
 );
 app.get("/api/health", (_req, res) =>
-  res.json({ app: "ootle-surveys", version: "0.2.0", status: "ok" }),
+  res.json({ app: "ootle-surveys", version: "0.2.1", status: "ok" }),
 );
 app.get("/api/admin/session", requireAdmin, (_req, res) =>
   res.json({ ok: true }),
@@ -521,11 +521,19 @@ app.use(
     });
   },
 );
-const server = app.listen(port, "127.0.0.1", () =>
+const server = app.listen(port, "127.0.0.1", (error?: Error) => {
+  if (error) {
+    console.error(
+      `Ootle Surveys could not listen on port ${port}: ${error.message}`,
+    );
+    db.close();
+    process.exitCode = 1;
+    return;
+  }
   console.log(
     `Ootle Surveys running at http://127.0.0.1:${port}. Organizer access is in ${tokenPath}.`,
-  ),
-);
+  );
+});
 function shutdown() {
   server.close(() => {
     db.close();

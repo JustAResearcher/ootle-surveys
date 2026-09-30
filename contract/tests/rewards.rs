@@ -35,9 +35,12 @@ fn rejects_public_payments_and_unauthorized_distributor(){
     let private=stealth::generate_mint_statement([1_000_000u64],0u64,None).statement;
     let reason=t.execute_expect_failure(t.transaction().call_method(pool,"pay",args!["aa".repeat(32),private]).build_and_seal(&sponsor),vec![]);
     assert_reject_reason(reason,"Distributor only");
-    let public=StealthTransferStatement::revealed_only(Amount::from(1_000_000u64),Amount::from(1_000_000u64));
+    let public=StealthTransferStatement::revealed_only(Amount::from(1_000_000u64),Amount::from(1_000_000u64),RistrettoPublicKey::from_secret_key(&key).to_byte_type());
     let reason=t.execute_expect_failure(t.transaction().call_method(pool,"pay",args!["aa".repeat(32),public]).build_and_seal(&key),vec![]);
     assert_reject_reason(reason,"Exactly one stealth recipient required");
+    let mixed=stealth::generate_mint_statement([999_999u64],1u64,None).statement;
+    let reason=t.execute_expect_failure(t.transaction().call_method(pool,"pay",args!["bb".repeat(32),mixed]).build_and_seal(&key),vec![]);
+    assert_reject_reason(reason,"Public payout not allowed");
 }
 
 #[test]

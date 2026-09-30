@@ -21,6 +21,11 @@ can save encrypted drafts before a pool is connected. To fund a pool:
 npm run setup:testnet
 ```
 
+Setup prints the operator's receiving address until test tokens are available.
+Use the [funding and reset guide](TESTNET-FUNDING.md); the old public L2 faucet
+cannot be relied on after the Ootle 0.42 reset. Existing installations should
+prepare and verify a separate reset candidate before replacing active chain settings.
+
 Restart the server after setup completes. On Windows, `scripts/start.ps1` installs
 missing dependencies, builds the UI and launches a hidden server process. It checks
 an existing listener's application identity before accepting it as this app.
